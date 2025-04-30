@@ -92,3 +92,7 @@ The assistant follows this workflow:
 ## 🌱 Future Enhancements
 
 - [ ] Implement conversation history
+
+## 📄 License
+
+MIT License
