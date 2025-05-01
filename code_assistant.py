@@ -3,6 +3,7 @@ import sys
 import glob
 import argparse
 import subprocess
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 import re
 
@@ -247,6 +248,29 @@ def display_file_preview(file_path: str, content: str) -> None:
     syntax = Syntax(content[:500] + ("..." if len(content) > 500 else ""), language, theme="monokai")
     console.print(syntax)
 
+def save_response_to_file(filename: str, content: str) -> None:
+    """Saves content to a specified file, prompting for overwrite if it exists."""
+    file_path = Path(filename)
+
+    if file_path.exists():
+        if file_path.is_file():
+            overwrite = Prompt.ask(f"[warning]File '{filename}' already exists. Overwrite?[/warning]", choices=['y', 'n'], default='n')
+            if overwrite.lower() == 'n':
+                console.print("[info]File save cancelled.[/info]")
+                return
+        else:
+            console.print(f"[error]Error: Cannot save. '{filename}' exists and is not a file (e.g., it's a directory).[/error]")
+            return
+
+    try:
+        # Ensure parent directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        console.print(f"[success]Response successfully saved to '{filename}'[/success]")
+    except Exception as e:
+        console.print(f"[error]Error saving file '{filename}': {str(e)}[/error]")
+
 def check_api_keys() -> bool:
     """Check if required API keys are set in environment or .env file."""
     # First, load environment variables from .env file
@@ -336,12 +360,15 @@ def main() -> None:
     
     # Add context to system prompt
     system_prompt += "\n\nHere are the contents of important files in the repository:" + context
-    
+
+    # Variable to store the last AI response
+    last_response: Optional[str] = None
+
     while True:
         console.print(f"\nUsing model: [bold]{MODELS[args.model]['name']}[/bold]")
         
         # Get user query
-        user_query = Prompt.ask("\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'preview' to see a file)")
+        user_query = Prompt.ask("\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'preview <file>' to see a file, 'save response <filename>' to save last response)")
         
         if user_query.lower() == 'exit':
             break
@@ -363,10 +390,23 @@ def main() -> None:
             else:
                 console.print(f"[error]File not found: {file_path}[/error]")
             continue
+        elif user_query.lower().startswith('save response '):
+            parts = user_query.split(' ', 2)  # Split into 'save', 'response', '<filename>'
+            if len(parts) < 3 or not parts[2].strip():
+                console.print("[warning]Please provide a filename, e.g., 'save response new_file.py'[/warning]")
+            elif last_response is None:
+                console.print("[warning]No AI response available to save yet. Ask a question first.[/warning]")
+            else:
+                filename_to_save = parts[2].strip()
+                save_response_to_file(filename_to_save, last_response)  # Call the new save function
+            continue  # Continue the loop after attempting to save
         
         # Query AI
         response = query_ai(system_prompt, user_query, args.model)
-        
+
+        # Store the last response
+        last_response = response
+
         # Display response
         console.print("\n[bold]Response:[/bold]")
         console.print(Markdown(response))
