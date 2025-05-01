@@ -249,12 +249,16 @@ def display_file_preview(file_path: str, content: str) -> None:
     console.print(syntax)
 
 def save_response_to_file(filename: str, content: str) -> None:
-    """Saves content to a specified file, prompting for overwrite if it exists."""
+    """
+    Saves content to a specified file, prompting for overwrite if it exists.
+    If the content is detected as a Markdown code block, the delimiters and language are trimmed.
+    """
     file_path = Path(filename)
 
     if file_path.exists():
         if file_path.is_file():
-            overwrite = Prompt.ask(f"[warning]File '{filename}' already exists. Overwrite?[/warning]", choices=['y', 'n'], default='n')
+            overwrite = Prompt.ask(f"[warning]File '{filename}' already exists. Overwrite?[/warning]",
+                                   choices=['y', 'n'], default='n')
             if overwrite.lower() == 'n':
                 console.print("[info]File save cancelled.[/info]")
                 return
@@ -262,14 +266,31 @@ def save_response_to_file(filename: str, content: str) -> None:
             console.print(f"[error]Error: Cannot save. '{filename}' exists and is not a file (e.g., it's a directory).[/error]")
             return
 
+    # Check if the content is a Markdown code block and trim if necessary
+    trimmed_content = content
+    # Regex to find a Markdown code block definition at the start of the string
+    code_block_match = re.search(r"^\s*```(\w+)?\n(.*?)\n```\s*$", content, re.DOTALL)
+
+    if code_block_match:
+        trimmed_content = code_block_match.group(2)
+        console.print("[info]Detected and trimmed markdown code block delimiters.[/info]")
+    else:
+        # Also check for inline code blocks and remove backticks if the *entire* content is an inline block
+        inline_code_match = re.match(r"^\s*`(.*)`\s*$", content, re.DOTALL)
+        if inline_code_match:
+            trimmed_content = inline_code_match.group(1)
+            console.print("[info]Detected and trimmed markdown inline code delimiters.[/info]")
+
     try:
         # Ensure parent directory exists
         file_path.parent.mkdir(parents=True, exist_ok=True)
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
+            f.write(trimmed_content)
         console.print(f"[success]Response successfully saved to '{filename}'[/success]")
+    except IOError as e:
+        console.print(f"[error]Error writing file '{filename}': {e}[/error]")
     except Exception as e:
-        console.print(f"[error]Error saving file '{filename}': {str(e)}[/error]")
+        console.print(f"[error]An unexpected error occurred while saving file '{filename}': {e}[/error]")
 
 def check_api_keys() -> bool:
     """Check if required API keys are set in environment or .env file."""
