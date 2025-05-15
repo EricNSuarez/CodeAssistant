@@ -106,14 +106,38 @@ def read_file_content(file_path: str) -> str:
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
+
 def get_repository_files(ignore_patterns: List[str]) -> Dict[str, str]:
-    """Get all files in the repository excluding those matching gitignore patterns."""
+    """Get all files in the repository excluding those matching gitignore patterns
+    and including only files with common programming extensions."""
     files = {}
-    
+
+    # Common programming and project file extensions
+    programming_extensions = {
+        # General programming languages
+        '.py', '.js', '.ts', '.java', '.c', '.cpp', '.cs', '.go', '.rs', '.rb', '.php',
+        '.scala', '.kt', '.swift', '.m', '.h', '.sh', '.ps1', '.r', '.pl', '.pm',
+        # Web development
+        '.html', '.css', '.jsx', '.tsx', '.vue', '.svelte', '.json', '.xml', '.yaml', '.yml',
+        # Configuration and build files
+        '.toml', '.ini', '.cfg', '.conf', '.md', '.markdown', '.rst', '.gitignore',
+        '.dockerignore', '.editorconfig', 'Dockerfile', 'Makefile', 'Jenkinsfile', '.example'
+        # Data files
+        '.csv', '.sql', '.graphql', '.proto',
+        # Documentation
+        '.txt', '.ipynb'
+    }
+
     for file_path in glob.glob("**/*", recursive=True):
-        if os.path.isfile(file_path) and not should_ignore(file_path, ignore_patterns) and not ".git/" in file_path:
-            files[file_path] = read_file_content(file_path)
-    
+        if os.path.isfile(file_path) and not ".git/" in file_path and not should_ignore(file_path, ignore_patterns):
+            # Get the file extension (including the dot)
+            _, ext = os.path.splitext(file_path)
+            # Check if the file has a programming extension or is a special file without extension
+            if ext.lower() in programming_extensions or any(file_path.endswith(special) for special in
+                                                            ['Dockerfile', 'Makefile', 'Jenkinsfile', 'README',
+                                                             'LICENSE']):
+                files[file_path] = read_file_content(file_path)
+
     return files
 
 def get_git_info() -> Dict[str, Any]:
@@ -408,7 +432,7 @@ def main() -> None:
     else:
         # Generate system prompt
         system_prompt = generate_system_prompt(files, git_info)
-    
+
     # Add file contents to context
     context = get_file_content_for_context(files)
     
