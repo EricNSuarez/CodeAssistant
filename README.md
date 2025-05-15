@@ -68,6 +68,7 @@ python code_assistant.py --model openrouter/anthropic/claude-3-opus
 - Ask questions about your code
 - `model`: List available models or switch models
 - `preview <file_path>`: View file contents
+- `summarize`: Provide repository summary
 - `exit`: Quit the assistant
 
 ## 🧠 How It Works
