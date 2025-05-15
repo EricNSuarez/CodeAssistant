@@ -154,9 +154,42 @@ Files in the repository:
     
     for file_path in files.keys():
         system_prompt += f"- {file_path}\n"
-    
+
     system_prompt += "\nPlease provide helpful, accurate answers about the code in this repository."
     return system_prompt
+
+def generate_summary_prompt(files: Dict[str, str], git_info: Dict[str, Any]) -> str:
+    """Generate system prompt with repository information for summarization tasks."""
+    system_prompt = f"""You are a helpful code assistant answering questions about the user's code repository.
+
+Repository Information:
+- Branch: {git_info.get('branch', 'Unknown')}
+- Remote: {git_info.get('remote', 'Unknown')}
+- Last Commit Message: {git_info.get('last_commit', 'Unknown')}
+
+Files in the repository:
+"""
+
+    for file_path in files.keys():
+        system_prompt += f"- {file_path}\n"
+
+    system_prompt += """Please analyze this code repository and provide a comprehensive summary that includes:
+
+1. Project overview: Main purpose and functionality of the application/library
+2. Architecture: High-level structure and organization of the codebase
+3. Key components: Most important files/modules and their purposes
+4. Technologies used: Programming languages, frameworks, libraries, and tools
+5. Design patterns: Notable architectural or implementation patterns
+6. Dataflow: How data moves through the system
+7. Notable features: Any interesting or technically sophisticated aspects
+8. Pain points: Areas that might need improvement (complex code, inconsistencies, etc.)
+
+Please organize your response with clear headings and provide specific code examples when helpful for understanding important concepts. If you notice any potential security concerns or performance bottlenecks, please mention those as well.
+
+For complex repositories, focus on the most important aspects rather than trying to cover everything."""
+
+    return system_prompt
+
 
 def get_file_content_for_context(files: Dict[str, str], max_tokens: int = 16000) -> str:
     """Get file content for context, limiting to max_tokens. Newline between files for clarity."""
@@ -389,7 +422,7 @@ def main() -> None:
         console.print(f"\nUsing model: [bold]{MODELS[args.model]['name']}[/bold]")
         
         # Get user query
-        user_query = Prompt.ask("\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'preview <file>' to see a file, 'save response <filename>' to save last response)")
+        user_query = Prompt.ask("\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'summarize' to get a summary for how the code works, 'preview <file>' to see a file, 'save response <filename>' to save last response)")
         
         if user_query.lower() == 'exit':
             break
@@ -410,6 +443,23 @@ def main() -> None:
                 display_file_preview(file_path, files[file_path])
             else:
                 console.print(f"[error]File not found: {file_path}[/error]")
+            continue
+        elif user_query.lower() == 'summarize':
+            # Generate a summary-specific prompt
+            summary_prompt = generate_summary_prompt(files, git_info)
+            # Add file contents to context (same as for normal queries)
+            summary_context = get_file_content_for_context(files)
+            # Add context to system prompt
+            summary_prompt += "\n\nHere are the contents of important files in the repository:" + summary_context
+            # Display informative message
+            console.print("[info]Generating comprehensive code repository summary...[/info]")
+            # Query AI with empty user prompt since the system prompt contains the summary instructions
+            response = query_ai(summary_prompt, "Please provide a summary of this codebase.", args.model)
+            # Store the last response
+            last_response = response
+            # Display response
+            console.print("\n[bold]Repository Summary:[/bold]")
+            console.print(Markdown(response))
             continue
         elif user_query.lower().startswith('save response '):
             parts = user_query.split(' ', 2)  # Split into 'save', 'response', '<filename>'
