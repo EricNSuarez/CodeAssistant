@@ -28,13 +28,12 @@ console = Console(theme=custom_theme)
 
 # Available AI models - Using OpenRouter models
 MODELS = {
-    "openrouter/anthropic/claude-3-5-sonnet": {"provider": "openrouter", "name": "Claude 3.5 Sonnet"},
-    "openrouter/anthropic/claude-3-opus": {"provider": "openrouter", "name": "Claude 3 Opus"},
-    "openrouter/anthropic/claude-3-haiku": {"provider": "openrouter", "name": "Claude 3 Haiku"},
-    "openrouter/google/gemini-pro": {"provider": "openrouter", "name": "Gemini Pro"},
-    "openrouter/openai/gpt-4o": {"provider": "openrouter", "name": "GPT-4o"},
-    "openrouter/mistral/mistral-large": {"provider": "openrouter", "name": "Mistral Large"},
-    "openrouter/meta-llama/llama-3-70b-instruct": {"provider": "openrouter", "name": "Llama 3 70B"},
+    "anthropic/claude-3.7-sonnet": {"provider": "openrouter", "name": "Claude 3.5 Sonnet"},
+    "anthropic/claude-3-opus": {"provider": "openrouter", "name": "Claude 3 Opus"},
+    "anthropic/claude-3-haiku": {"provider": "openrouter", "name": "Claude 3 Haiku"},
+    "google/gemini-pro": {"provider": "openrouter", "name": "Gemini Pro"},
+    "openai/gpt-4o": {"provider": "openrouter", "name": "GPT-4o"},
+    "mistral/mistral-large": {"provider": "openrouter", "name": "Mistral Large"},
     "google/gemini-2.5-flash-preview": {"provider": "openrouter", "name": "Gemini 2.5 Flash Preview"},
 }
 
