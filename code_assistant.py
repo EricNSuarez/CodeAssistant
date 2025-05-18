@@ -1,6 +1,7 @@
 ﻿import os
 import sys
 import glob
+import json
 import argparse
 import subprocess
 from pathlib import Path
@@ -36,6 +37,34 @@ MODELS = {
     "mistral/mistral-large": {"provider": "openrouter", "name": "Mistral Large"},
     "google/gemini-2.5-flash-preview": {"provider": "openrouter", "name": "Gemini 2.5 Flash Preview"},
 }
+
+def load_conversation_history(history_file_path: str) -> List[Dict[str, str]]:
+    """Load conversation history from a JSON file."""
+    if Path(history_file_path).exists():
+        console.print(f"[info]Loading conversation history from {history_file_path}...[/info]")
+        try:
+            with open(history_file_path, "r", encoding="utf-8") as f:
+                history = json.load(f)
+                # Basic validation to ensure it's a list of dicts with 'role' and 'content'
+                if isinstance(history, list) and all(isinstance(item, dict) and 'role' in item and 'content' in item for item in history):
+                     console.print(f"[success]Loaded {len(history)} messages from history.[/success]")
+                     return history
+                else:
+                    console.print(f"[warning]History file '{history_file_path}' has invalid format. Starting fresh.[/warning]")
+                    return []
+        except Exception as e:
+            console.print(f"[warning]Error loading conversation history from {history_file_path}: {e}. Starting fresh.[/warning]")
+            return []
+    return []
+
+def save_conversation_history(history_file_path: str, history: List[Dict[str, str]]):
+    """Save conversation history to a JSON file."""
+    try:
+        with open(history_file_path, "w", encoding="utf-8") as file:
+            json.dump(history, file, indent=4)
+            console.print(f"[info]History saved to {history_file_path}[/info]")
+    except Exception as e:
+        console.print(f"[warning]Error saving conversation history to {history_file_path}: {e}[/warning]")
 
 def load_env_file() -> Dict[str, str]:
     """Load environment variables from .env file if it exists."""
@@ -230,46 +259,67 @@ def get_file_content_for_context(files: Dict[str, str], max_tokens: int = 16000)
     
     return context
 
-def query_openrouter(system_prompt: str, user_prompt: str, model: str) -> str:
-    """Query OpenRouter's API."""
+def query_openrouter(messages: List[Dict[str, str]], model: str) -> str:
+    """Query OpenRouter's API with full message history.
+
+    Args:
+        messages: Conversation history including roles:
+                  system, user, and assistant
+        model: The model ID to use for completion
+
+    Returns:
+        str: Generated response from the AI model
+    """
     client = openai.OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=os.environ.get("OPENROUTER_API_KEY")
     )
-    
     response = client.chat.completions.create(
         model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
+        messages=messages,
         max_tokens=4000
     )
     return response.choices[0].message.content
 
-def query_openai(system_prompt: str, user_prompt: str, model: str) -> str:
-    """Query OpenAI's API."""
+def query_openai(messages: List[Dict[str, str]], model: str) -> str:
+    """Query OpenAI's API with conversation context.
+
+    Args:
+        messages: Conversation history including roles:
+                  system, user, and assistant
+        model: The OpenAI model to use for completion
+        messages: List of message dictionaries with role and content
+
+    Returns:
+        str: Generated response from the AI model
+    """
     client = openai.OpenAI()
     response = client.chat.completions.create(
         model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
+        messages=messages,
         max_tokens=4000
     )
     return response.choices[0].message.content
 
-def query_ai(system_prompt: str, user_prompt: str, model: str) -> str:
-    """Query the AI model based on the provider."""
+
+def query_ai(messages: List[Dict[str, str]], model: str) -> str:
+    """Query the AI model with complete conversation history.
+
+    Args:
+        messages: List of message objects maintaining dialog state
+        model: The model identifier to use for the query
+
+    Returns:
+        str: Generated response from the AI model
+    """
     with Progress() as progress:
         task = progress.add_task("[cyan]Querying AI model...", total=1)
         
         try:
             if MODELS[model]["provider"] == "openrouter":
-                response = query_openrouter(system_prompt, user_prompt, model)
+                response = query_openrouter(messages, model)
             elif MODELS[model]["provider"] == "openai":
-                response = query_openai(system_prompt, user_prompt, model)
+                response = query_openai(messages, model)
             else:
                 response = "Error: Unknown model provider"
                 
@@ -390,7 +440,14 @@ def main() -> None:
         title="Welcome",
         border_style="blue"
     ))
-    
+
+    history_file = ".code_assistant_history_repo.json"
+    # Generate mode-specific history file name
+    if args.file:
+        history_file = f".code_assistant_history_{Path(args.file).stem}.json"
+
+    messages = load_conversation_history(history_file)
+
     # Check for API keys (including from .env file)
     if not check_api_keys():
         sys.exit(1)
@@ -398,6 +455,8 @@ def main() -> None:
     # Check for Git repository
     if not check_git_repository():
         console.print("[error]Error: Not a valid Git repository. Please run this from a Git repository root.[/error]")
+        # Save history before exiting on error
+        save_conversation_history(history_file, messages)
         sys.exit(1)
     
     # Get gitignore patterns
@@ -415,28 +474,43 @@ def main() -> None:
     # Get git information
     git_info = get_git_info()
 
-    # If a single file is specified, read and provide its content
-    if args.file:
+    # TODO: Note to self - Improve this horrible code segment, please
+    # Generate system prompt based on current repository state
+    # Overwrite previous system prompt if loaded from history
+    if messages and messages[0]['role'] == 'system':
+        messages[0]['content'] = generate_system_prompt(files, git_info, single_file=args.file if args.file in files else None)
+        # If single file mode is active, ensure the system prompt reflects it
         if args.file in files:
             single_file_content = read_file_content(args.file)
             console.print(f"[info]Analyzing only: [/info][bold]{args.file}[/bold]")
             # Update the system prompt and context to reflect the single file analysis
             files_to_analyze = {args.file: single_file_content}
-            system_prompt = generate_system_prompt(files_to_analyze, git_info, single_file=args.file)
-            # context = f"\n# File: {args.file}\n```\n{single_file_content}\n```"
+            # Generate base prompt
+            base_prompt = generate_system_prompt(files_to_analyze, git_info, single_file=args.file)
+            # Add file content directly to system prompt
+            file_context = f"\n\n# File: {args.file}\n```\n{single_file_content}\n```"
+            messages[0]['content'] = base_prompt + file_context
         else:
-             console.print(
-                 f"[error]Error: Specified file '{args.file}' not found in the repository or is ignored.[/error]")
-             sys.exit(1)
+             messages[0]['content'] = generate_system_prompt(files, git_info)
+             # Re-add file context if not in single file mode
+             context = get_file_content_for_context(files)
+             messages[0]['content'] += "\n\nHere are the contents of important files in the repository:" + context
     else:
-        # Generate system prompt
-        system_prompt = generate_system_prompt(files, git_info)
+        # If no history or first message isn't system, create the initial messages list
+        messages = []
+        system_prompt_content = generate_system_prompt(files, git_info, single_file=args.file if args.file in files else None)
+        if args.file and args.file in files:
+            single_file_content = read_file_content(args.file)
+            console.print(f"[info]Analyzing only: [/info][bold]{args.file}[/bold]")
+            system_prompt_content += f"\n\n# File: {args.file}\n```\n{single_file_content}\n```"
+        else:
+             context = get_file_content_for_context(files)
+             system_prompt_content += "\n\nHere are the contents of important files in the repository:" + context
 
-    # Add file contents to context
-    context = get_file_content_for_context(files)
-    
-    # Add context to system prompt
-    system_prompt += "\n\nHere are the contents of important files in the repository:" + context
+        messages.insert(0, { # Insert at the beginning to be the first message
+            "role": "system",
+            "content": system_prompt_content
+        })
 
     # Variable to store the last AI response
     last_response: Optional[str] = None
@@ -446,10 +520,16 @@ def main() -> None:
         
         # Get user query
         user_query = Prompt.ask("\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'summarize' to get a summary for how the code works, 'preview <file>' to see a file, 'save response <filename>' to save last response)")
+        messages.append({"role": "user", "content": user_query})
         
         if user_query.lower() == 'exit':
+            # Remove 'user' message for the command
+            messages.pop()
+            save_conversation_history(history_file, messages)
             break
         elif user_query.lower() == 'model':
+            # Remove 'user' message for the command
+            messages.pop()
             # Display available models
             console.print("\n[bold]Available models:[/bold]")
             for key, model_info in MODELS.items():
@@ -461,6 +541,9 @@ def main() -> None:
             console.print(f"[success]Changed to {MODELS[new_model]['name']}[/success]")
             continue
         elif user_query.lower().startswith('preview '):
+            # Remove 'user' message for the command
+            messages.pop()
+
             file_path = user_query[8:].strip()
             if file_path in files:
                 display_file_preview(file_path, files[file_path])
@@ -468,6 +551,8 @@ def main() -> None:
                 console.print(f"[error]File not found: {file_path}[/error]")
             continue
         elif user_query.lower() == 'summarize':
+            # Remove 'user' message for the command
+            messages.pop()
             # Generate a summary-specific prompt
             summary_prompt = generate_summary_prompt(files, git_info)
             # Add file contents to context (same as for normal queries)
@@ -477,7 +562,13 @@ def main() -> None:
             # Display informative message
             console.print("[info]Generating comprehensive code repository summary...[/info]")
             # Query AI with empty user prompt since the system prompt contains the summary instructions
-            response = query_ai(summary_prompt, "Please provide a summary of this codebase.", args.model)
+            response = query_ai(
+                messages=[{
+                    "role": "system",
+                    "content": summary_prompt
+                }],
+                model=args.model
+            )
             # Store the last response
             last_response = response
             # Display response
@@ -485,6 +576,8 @@ def main() -> None:
             console.print(Markdown(response))
             continue
         elif user_query.lower().startswith('save response '):
+            # Remove 'user' message for the command
+            messages.pop()
             parts = user_query.split(' ', 2)  # Split into 'save', 'response', '<filename>'
             if len(parts) < 3 or not parts[2].strip():
                 console.print("[warning]Please provide a filename, e.g., 'save response new_file.py'[/warning]")
@@ -496,7 +589,8 @@ def main() -> None:
             continue  # Continue the loop after attempting to save
         
         # Query AI
-        response = query_ai(system_prompt, user_query, args.model)
+        response = query_ai(messages, args.model)
+        messages.append({"role": "assistant", "content": response})
 
         # Store the last response
         last_response = response
@@ -504,6 +598,14 @@ def main() -> None:
         # Display response
         console.print("\n[bold]Response:[/bold]")
         console.print(Markdown(response))
+
+        # Save history after each successful AI interaction
+        save_conversation_history(history_file, messages)
+
+    # The loop breaks here on 'exit'
+    # History is saved just before the loop breaks
+    console.print("[info]Exiting Code Assistant. Conversation history saved.[/info]")
+
 
 if __name__ == "__main__":
     main()
