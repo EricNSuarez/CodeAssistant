@@ -427,11 +427,29 @@ def check_api_keys() -> bool:
         return False
     return True
 
+def clear_conversation_history(history_file_path: str) -> None:
+    """
+    Clears the conversation history by deleting the history file.
+
+    Args:
+        history_file_path: The path to the conversation history file.
+    """
+    if os.path.exists(history_file_path):
+        try:
+            os.remove(history_file_path)
+            console.print(f"[success]Conversation history cleared from {history_file_path}[/success]")
+        except OSError as e:
+            console.print(f"[error]Error clearing conversation history from {history_file_path}: {e}[/error]")
+    else:
+        console.print("[info]No conversation history file found to clear.[/info]")
+
+
 def main() -> None:
     """Main function for the code assistant."""
     parser = argparse.ArgumentParser(description="AI-powered code assistant for Git repositories")
     parser.add_argument("file", nargs="?", help="Optional: Specify a single file to analyze")
     parser.add_argument("--model", choices=list(MODELS.keys()), default="google/gemini-2.5-flash-preview", help="AI model to use")
+    parser.add_argument("--clear", action="store_true", help="Clear conversation history before starting")
     args = parser.parse_args()
     
     # Print welcome message
@@ -447,6 +465,10 @@ def main() -> None:
         history_file = f".code_assistant_history_{Path(args.file).stem}.json"
 
     messages = load_conversation_history(history_file)
+
+    # Clear history if --clear flag is used
+    if args.clear:
+        clear_conversation_history(history_file)
 
     # Check for API keys (including from .env file)
     if not check_api_keys():
@@ -519,7 +541,8 @@ def main() -> None:
         console.print(f"\nUsing model: [bold]{MODELS[args.model]['name']}[/bold]")
         
         # Get user query
-        user_query = Prompt.ask("\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'summarize' to get a summary for how the code works, 'preview <file>' to see a file, 'save response <filename>' to save last response)")
+        user_query = Prompt.ask(
+            "\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'summarize' to get a summary for how the code works, 'preview <file>' to see a file, 'save response <filename>' to save last response, 'clear' to clear conversation history)")
         messages.append({"role": "user", "content": user_query})
         
         if user_query.lower() == 'exit':
@@ -587,6 +610,33 @@ def main() -> None:
                 filename_to_save = parts[2].strip()
                 save_response_to_file(filename_to_save, last_response)  # Call the new save function
             continue  # Continue the loop after attempting to save
+        elif user_query.lower() == 'clear':
+            # Remove 'user' message for the command
+            messages.pop()
+            # When switching modes
+            should_reset = Prompt.ask(
+                "[warning]You've changed context. Reset conversation history?[/warning]",
+                choices=['y', 'n'],
+                default='y'
+            )
+            if should_reset.lower() == 'y':
+                clear_conversation_history(history_file)
+                # Reset the messages list in memory after clearing the file
+                messages = []
+                # Regenerate the system prompt based on the current context
+                system_prompt_content = generate_system_prompt(files, git_info,
+                                                               single_file=args.file if args.file in files else None)
+                if args.file and args.file in files:
+                    single_file_content = read_file_content(args.file)
+                    system_prompt_content += f"\n\n# File: {args.file}\n```\n{single_file_content}\n```"
+                else:
+                    context = get_file_content_for_context(files)
+                    system_prompt_content += "\n\nHere are the contents of important files in the repository:" + context
+                messages.insert(0, {
+                    "role": "system",
+                    "content": system_prompt_content
+                })
+            continue
         
         # Query AI
         response = query_ai(messages, args.model)
