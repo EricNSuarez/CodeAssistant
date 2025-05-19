@@ -364,7 +364,7 @@ def save_response_to_file(filename: str, content: str) -> None:
     if file_path.exists():
         if file_path.is_file():
             overwrite = Prompt.ask(f"[warning]File '{filename}' already exists. Overwrite?[/warning]",
-                                   choices=['y', 'n'], default='n')
+                                   console=console, choices=['y', 'n'], default='n')
             if overwrite.lower() == 'n':
                 console.print("[info]File save cancelled.[/info]")
                 return
@@ -542,7 +542,9 @@ def main() -> None:
         
         # Get user query
         user_query = Prompt.ask(
-            "\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'summarize' to get a summary for how the code works, 'preview <file>' to see a file, 'save response <filename>' to save last response, 'clear' to clear conversation history)")
+            "\n[bold green]Ask about your code[/bold green] (type 'exit' to quit, 'model' to change model, 'summarize' to get a summary for how the code works, 'preview <file>' to see a file, 'save response <filename>' to save last response, 'clear' to clear conversation history)",
+            console=console
+        )
         messages.append({"role": "user", "content": user_query})
         
         if user_query.lower() == 'exit':
@@ -559,7 +561,7 @@ def main() -> None:
                 console.print(f"  - {key}: {model_info['name']} ({model_info['provider']})")
             
             # Let user select a model
-            new_model = Prompt.ask("[bold]Select model[/bold]", choices=list(MODELS.keys()))
+            new_model = Prompt.ask("[bold]Select model[/bold]", console=console, choices=list(MODELS.keys()))
             args.model = new_model
             console.print(f"[success]Changed to {MODELS[new_model]['name']}[/success]")
             continue
@@ -616,6 +618,7 @@ def main() -> None:
             # When switching modes
             should_reset = Prompt.ask(
                 "[warning]You've changed context. Reset conversation history?[/warning]",
+                console=console,
                 choices=['y', 'n'],
                 default='y'
             )
